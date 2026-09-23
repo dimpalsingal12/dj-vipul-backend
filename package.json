@@ -17,9 +17,11 @@
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
+    "googleapis": "^181.0.0",
     "jsonwebtoken": "^9.0.3",
     "mongoose": "^9.9.2",
     "multer": "^2.2.0",
-    "nodemailer": "^10.0.9"
+    "nodemailer": "^10.0.9",
+    "resend": "^6.28.1"
   }
 }

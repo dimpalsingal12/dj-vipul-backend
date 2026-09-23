@@ -51,8 +51,8 @@ router.post("/register", async (req, res) => {
     await customer.save();
 
     // Create verification link
-    const verificationLink =
-      `http://localhost:5000/api/customers/verify-email/${verificationToken}`;
+   const verificationLink =
+  `${process.env.BACKEND_URL}/api/customers/verify-email/${verificationToken}`;
 
     // Send verification email
     await transporter.sendMail({
@@ -167,8 +167,7 @@ router.post("/forgot-password", async (req, res) => {
 
     // Create reset password link
     const resetLink =
-      `http://localhost:5173/reset-password/${resetToken}`;
-
+  `${process.env.FRONTEND_URL}/reset-password/${resetToken}`;
     // Send reset email
     await transporter.sendMail({
       from: process.env.EMAIL_USER,
