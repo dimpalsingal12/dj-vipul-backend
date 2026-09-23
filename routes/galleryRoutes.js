@@ -2,6 +2,7 @@ const express = require("express");
 const multer = require("multer");
 const Gallery = require("../models/Gallery");
 const cloudinary = require("../config/cloudinary");
+const { protectAdmin } = require("../middleware/auth");
 
 const router = express.Router();
 
@@ -9,7 +10,9 @@ const upload = multer({
   storage: multer.memoryStorage(),
 });
 
-// GET ALL GALLERY MEDIA
+// ================= GET ALL GALLERY MEDIA =================
+// Public route - website visitors can view gallery
+
 router.get("/", async (req, res) => {
   try {
     const gallery = await Gallery.find().sort({
@@ -27,72 +30,81 @@ router.get("/", async (req, res) => {
   }
 });
 
-// ADD PHOTO / VIDEO
-router.post("/upload", upload.single("media"), async (req, res) => {
-  try {
-    if (!req.file) {
-      return res.status(400).json({
-        message: "Please select a file",
-      });
-    }
+// ================= ADD PHOTO / VIDEO =================
+// Admin only
 
-    const { category } = req.body;
+router.post(
+  "/upload",
+  protectAdmin,
+  upload.single("media"),
+  async (req, res) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({
+          message: "Please select a file",
+        });
+      }
 
-    if (!["events", "dj", "live"].includes(category)) {
-      return res.status(400).json({
-        message: "Invalid gallery category",
-      });
-    }
+      const { category } = req.body;
 
-    const isVideo = req.file.mimetype.startsWith("video");
+      if (!["events", "dj", "live"].includes(category)) {
+        return res.status(400).json({
+          message: "Invalid gallery category",
+        });
+      }
 
-    const uploadResult = await new Promise((resolve, reject) => {
-      const stream = cloudinary.uploader.upload_stream(
-        {
-          resource_type: isVideo ? "video" : "image",
-          folder: "dj-vipul-gallery",
-        },
-        (error, result) => {
-          if (error) {
-            reject(error);
-          } else {
-            resolve(result);
+      const isVideo = req.file.mimetype.startsWith("video");
+
+      const uploadResult = await new Promise((resolve, reject) => {
+        const stream = cloudinary.uploader.upload_stream(
+          {
+            resource_type: isVideo ? "video" : "image",
+            folder: "dj-vipul-gallery",
+          },
+          (error, result) => {
+            if (error) {
+              reject(error);
+            } else {
+              resolve(result);
+            }
           }
-        }
-      );
+        );
 
-      stream.end(req.file.buffer);
-    });
+        stream.end(req.file.buffer);
+      });
 
-    const lastItem = await Gallery.findOne({ category }).sort({
-      order: -1,
-    });
+      const lastItem = await Gallery.findOne({ category }).sort({
+        order: -1,
+      });
 
-    const newOrder = lastItem ? lastItem.order + 1 : 1;
+      const newOrder = lastItem ? lastItem.order + 1 : 1;
 
-    const galleryItem = await Gallery.create({
-      mediaType: isVideo ? "video" : "image",
-      category,
-      mediaUrl: uploadResult.secure_url,
-      publicId: uploadResult.public_id,
-      order: newOrder,
-    });
+      const galleryItem = await Gallery.create({
+        mediaType: isVideo ? "video" : "image",
+        category,
+        mediaUrl: uploadResult.secure_url,
+        publicId: uploadResult.public_id,
+        order: newOrder,
+      });
 
-    res.status(201).json({
-      message: "Media uploaded successfully",
-      galleryItem,
-    });
-  } catch (error) {
-    res.status(500).json({
-      message: "Upload failed",
-      error: error.message,
-    });
+      res.status(201).json({
+        message: "Media uploaded successfully",
+        galleryItem,
+      });
+    } catch (error) {
+      res.status(500).json({
+        message: "Upload failed",
+        error: error.message,
+      });
+    }
   }
-});
+);
 
-// UPDATE ORDER
+// ================= UPDATE ORDER =================
+// Admin only
 // IMPORTANT: This must come BEFORE /:id
-router.put("/order/update", async (req, res) => {
+
+router.put("/order/update", protectAdmin, async (req, res) => {
   try {
     const { items } = req.body;
 
@@ -121,8 +133,10 @@ router.put("/order/update", async (req, res) => {
   }
 });
 
-// UPDATE CATEGORY
-router.put("/:id", async (req, res) => {
+// ================= UPDATE CATEGORY =================
+// Admin only
+
+router.put("/:id", protectAdmin, async (req, res) => {
   try {
     const { category } = req.body;
 
@@ -165,8 +179,10 @@ router.put("/:id", async (req, res) => {
   }
 });
 
-// DELETE MEDIA
-router.delete("/:id", async (req, res) => {
+// ================= DELETE MEDIA =================
+// Admin only
+
+router.delete("/:id", protectAdmin, async (req, res) => {
   try {
     const item = await Gallery.findById(req.params.id);
 

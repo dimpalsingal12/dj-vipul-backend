@@ -1,9 +1,10 @@
-
 const express = require("express");
 const bcrypt = require("bcryptjs");
 const crypto = require("crypto");
+const jwt = require("jsonwebtoken");
 const Customer = require("../models/Customer");
 const transporter = require("../config/emailService");
+const { protectAdmin } = require("../middleware/auth");
 
 const router = express.Router();
 
@@ -21,7 +22,9 @@ router.post("/register", async (req, res) => {
     }
 
     // Check if customer already exists
-    const existingCustomer = await Customer.findOne({ email });
+    const existingCustomer = await Customer.findOne({
+      email: email.toLowerCase(),
+    });
 
     if (existingCustomer) {
       return res.status(400).json({
@@ -38,7 +41,7 @@ router.post("/register", async (req, res) => {
     // Create customer
     const customer = new Customer({
       name,
-      email,
+      email: email.toLowerCase(),
       phone,
       password: hashedPassword,
       isVerified: false,
@@ -143,7 +146,9 @@ router.post("/forgot-password", async (req, res) => {
     }
 
     // Find customer by email
-    const customer = await Customer.findOne({ email });
+    const customer = await Customer.findOne({
+      email: email.toLowerCase(),
+    });
 
     if (!customer) {
       return res.status(404).json({
@@ -210,7 +215,6 @@ router.post("/forgot-password", async (req, res) => {
   }
 });
 
-
 // ================= RESET PASSWORD =================
 
 router.post("/reset-password/:token", async (req, res) => {
@@ -275,7 +279,9 @@ router.post("/login", async (req, res) => {
     }
 
     // Find customer by email
-    const customer = await Customer.findOne({ email });
+    const customer = await Customer.findOne({
+      email: email.toLowerCase(),
+    });
 
     if (!customer) {
       return res.status(401).json({
@@ -302,8 +308,27 @@ router.post("/login", async (req, res) => {
       });
     }
 
+    // Create JWT token
+    const token = jwt.sign(
+      {
+        id: customer._id,
+        name: customer.name,
+        email: customer.email,
+        phone: customer.phone,
+        role: "customer",
+      },
+      process.env.JWT_SECRET,
+      {
+        expiresIn: "1d",
+      }
+    );
+
+    // Login successful
     res.status(200).json({
       message: "Login successful",
+
+      token,
+
       customer: {
         id: customer._id,
         name: customer.name,
@@ -322,7 +347,7 @@ router.post("/login", async (req, res) => {
 
 // ================= GET ALL CUSTOMERS =================
 
-router.get("/", async (req, res) => {
+router.get("/", protectAdmin, async (req, res) => {
   try {
     const customers = await Customer.find().select("-password");
 

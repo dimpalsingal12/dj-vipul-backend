@@ -1,12 +1,77 @@
 const express = require("express");
 const Booking = require("../models/Booking");
 const transporter = require("../config/emailService");
+const {
+  protectAdmin,
+  protectCustomer,
+} = require("../middleware/auth");
 
 const router = express.Router();
 
+// ================= CREATE BOOKING - CUSTOMER =================
+
+router.post("/", protectCustomer, async (req, res) => {
+  try {
+    const {
+      customerName,
+      email,
+      phone,
+      eventType,
+      eventDate,
+      venue,
+      guests,
+      eventDetails,
+    } = req.body;
+
+    // Check required fields
+    if (
+      !customerName ||
+      !email ||
+      !phone ||
+      !eventType ||
+      !eventDate ||
+      !venue ||
+      !guests
+    ) {
+      return res.status(400).json({
+        message: "All required booking fields are required",
+      });
+    }
+
+    // Make sure booking belongs to logged-in customer
+    if (email.toLowerCase() !== req.user.email.toLowerCase()) {
+      return res.status(403).json({
+        message: "You can only create a booking for your own account",
+      });
+    }
+
+    const booking = new Booking({
+      customerName,
+      email,
+      phone,
+      eventType,
+      eventDate,
+      venue,
+      guests,
+      eventDetails,
+      status: "Pending",
+    });
+
+    const savedBooking = await booking.save();
+
+    res.status(201).json(savedBooking);
+  } catch (error) {
+    console.error("Error creating booking:", error);
+
+    res.status(400).json({
+      message: error.message,
+    });
+  }
+});
+
 // ================= GET ALL BOOKINGS - ADMIN =================
 
-router.get("/", async (req, res) => {
+router.get("/", protectAdmin, async (req, res) => {
   try {
     const bookings = await Booking.find().sort({
       createdAt: -1,
@@ -24,9 +89,16 @@ router.get("/", async (req, res) => {
 
 // ================= GET CUSTOMER BOOKINGS =================
 
-router.get("/my-bookings/:email", async (req, res) => {
+router.get("/my-bookings/:email", protectCustomer, async (req, res) => {
   try {
     const { email } = req.params;
+
+    // Customer can only see their own bookings
+    if (email.toLowerCase() !== req.user.email.toLowerCase()) {
+      return res.status(403).json({
+        message: "You can only view your own bookings",
+      });
+    }
 
     const bookings = await Booking.find({ email }).sort({
       createdAt: -1,
@@ -44,13 +116,20 @@ router.get("/my-bookings/:email", async (req, res) => {
 
 // ================= CUSTOMER CANCEL BOOKING =================
 
-router.put("/:id/cancel", async (req, res) => {
+router.put("/:id/cancel", protectCustomer, async (req, res) => {
   try {
     const { email } = req.body;
 
     if (!email) {
       return res.status(400).json({
         message: "Customer email is required",
+      });
+    }
+
+    // Make sure request belongs to logged-in customer
+    if (email.toLowerCase() !== req.user.email.toLowerCase()) {
+      return res.status(403).json({
+        message: "You can only cancel your own booking",
       });
     }
 
@@ -64,7 +143,7 @@ router.put("/:id/cancel", async (req, res) => {
     }
 
     // Make sure customer can cancel only their own booking
-    if (booking.email !== email) {
+    if (booking.email.toLowerCase() !== req.user.email.toLowerCase()) {
       return res.status(403).json({
         message: "You can only cancel your own booking",
       });
@@ -86,7 +165,6 @@ router.put("/:id/cancel", async (req, res) => {
       message: "Booking cancelled successfully",
       booking: booking,
     });
-
   } catch (error) {
     console.error("Error cancelling booking:", error);
 
@@ -96,41 +174,97 @@ router.put("/:id/cancel", async (req, res) => {
   }
 });
 
-// ================= CUSTOMER DELETE BOOKING =================
+// ================= DELETE BOOKING - CUSTOMER OR ADMIN =================
 
 router.delete("/:id", async (req, res) => {
   try {
-    const { email } = req.body;
+    const authHeader = req.headers.authorization;
 
-    if (!email) {
-      return res.status(400).json({
-        message: "Customer email is required",
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+      return res.status(401).json({
+        message: "Access denied. Authentication required.",
       });
     }
 
-    // Find the booking
-    const booking = await Booking.findById(req.params.id);
+    const token = authHeader.split(" ")[1];
 
-    if (!booking) {
-      return res.status(404).json({
-        message: "Booking not found",
+    const jwt = require("jsonwebtoken");
+
+    let decoded;
+
+    try {
+      decoded = jwt.verify(token, process.env.JWT_SECRET);
+    } catch (error) {
+      return res.status(401).json({
+        message: "Invalid or expired authentication token.",
       });
     }
 
-    // Make sure customer can delete only their own booking
-    if (booking.email !== email) {
-      return res.status(403).json({
-        message: "You can only delete your own booking",
+    // ================= ADMIN DELETE =================
+
+    if (decoded.role === "admin") {
+      const booking = await Booking.findById(req.params.id);
+
+      if (!booking) {
+        return res.status(404).json({
+          message: "Booking not found",
+        });
+      }
+
+      await Booking.findByIdAndDelete(req.params.id);
+
+      return res.status(200).json({
+        message: "Booking deleted successfully by admin",
       });
     }
 
-    // Permanently delete the booking
-    await Booking.findByIdAndDelete(req.params.id);
+    // ================= CUSTOMER DELETE =================
 
-    res.status(200).json({
-      message: "Booking deleted successfully",
+    if (decoded.role === "customer") {
+      const { email } = req.body;
+
+      if (!email) {
+        return res.status(400).json({
+          message: "Customer email is required",
+        });
+      }
+
+      // Make sure request belongs to logged-in customer
+      if (email.toLowerCase() !== decoded.email.toLowerCase()) {
+        return res.status(403).json({
+          message: "You can only delete your own booking",
+        });
+      }
+
+      // Find the booking
+      const booking = await Booking.findById(req.params.id);
+
+      if (!booking) {
+        return res.status(404).json({
+          message: "Booking not found",
+        });
+      }
+
+      // Make sure customer can delete only their own booking
+      if (booking.email.toLowerCase() !== decoded.email.toLowerCase()) {
+        return res.status(403).json({
+          message: "You can only delete your own booking",
+        });
+      }
+
+      // Permanently delete the booking
+      await Booking.findByIdAndDelete(req.params.id);
+
+      return res.status(200).json({
+        message: "Booking deleted successfully",
+      });
+    }
+
+    // ================= INVALID ROLE =================
+
+    return res.status(403).json({
+      message: "Access denied.",
     });
-
   } catch (error) {
     console.error("Error deleting booking:", error);
 
@@ -142,7 +276,7 @@ router.delete("/:id", async (req, res) => {
 
 // ================= ACCEPT OR REJECT BOOKING =================
 
-router.put("/:id/status", async (req, res) => {
+router.put("/:id/status", protectAdmin, async (req, res) => {
   try {
     const { status } = req.body;
 
@@ -359,7 +493,6 @@ router.put("/:id/status", async (req, res) => {
 
     // Send updated booking to frontend
     res.status(200).json(booking);
-
   } catch (error) {
     console.error("Error updating booking:", error);
 

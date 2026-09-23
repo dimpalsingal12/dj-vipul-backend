@@ -1,5 +1,6 @@
 const express = require("express");
 const bcrypt = require("bcryptjs");
+const jwt = require("jsonwebtoken");
 const Admin = require("../models/Admin");
 
 const router = express.Router();
@@ -38,9 +39,23 @@ router.post("/login", async (req, res) => {
       });
     }
 
+    // Create JWT token
+    const token = jwt.sign(
+      {
+        id: admin._id,
+        username: admin.username,
+        role: "admin",
+      },
+      process.env.JWT_SECRET,
+      {
+        expiresIn: "1d",
+      }
+    );
+
     // Login successful
     res.status(200).json({
       message: "Admin login successful",
+      token,
       admin: {
         id: admin._id,
         username: admin.username,

@@ -1,9 +1,15 @@
 const express = require("express");
 const Review = require("../models/Review");
+const {
+  protectAdmin,
+  protectCustomer,
+} = require("../middleware/auth");
 
 const router = express.Router();
 
-// Get all reviews
+// ================= GET ALL REVIEWS =================
+// Public route - anyone can view reviews
+
 router.get("/", async (req, res) => {
   try {
     const reviews = await Review.find().sort({
@@ -19,8 +25,10 @@ router.get("/", async (req, res) => {
   }
 });
 
-// Add a review
-router.post("/", async (req, res) => {
+// ================= ADD A REVIEW =================
+// Customer only
+
+router.post("/", protectCustomer, async (req, res) => {
   try {
     const { customerName, rating, comment } = req.body;
 
@@ -55,8 +63,10 @@ router.post("/", async (req, res) => {
   }
 });
 
-// Delete a review
-router.delete("/:id", async (req, res) => {
+// ================= DELETE A REVIEW =================
+// Admin only
+
+router.delete("/:id", protectAdmin, async (req, res) => {
   try {
     await Review.findByIdAndDelete(req.params.id);
 
@@ -70,8 +80,10 @@ router.delete("/:id", async (req, res) => {
   }
 });
 
-// Change review order
-router.put("/reorder", async (req, res) => {
+// ================= CHANGE REVIEW ORDER =================
+// Admin only
+
+router.put("/reorder", protectAdmin, async (req, res) => {
   try {
     const { reviewIds } = req.body;
 

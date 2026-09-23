@@ -1,11 +1,19 @@
 const express = require("express");
 const Service = require("../models/Service");
+const { protectAdmin } = require("../middleware/auth");
 
 const router = express.Router();
 
+// ================= GET ALL SERVICES =================
+// Public route
+
 router.get("/", async (req, res) => {
   try {
-    const services = await Service.find().sort({ order: 1, createdAt: 1 });
+    const services = await Service.find().sort({
+      order: 1,
+      createdAt: 1,
+    });
+
     res.status(200).json(services);
   } catch (error) {
     res.status(500).json({
@@ -14,7 +22,10 @@ router.get("/", async (req, res) => {
   }
 });
 
-router.post("/", async (req, res) => {
+// ================= ADD SERVICE =================
+// Admin only
+
+router.post("/", protectAdmin, async (req, res) => {
   try {
     const { name, description } = req.body;
 
@@ -24,9 +35,13 @@ router.post("/", async (req, res) => {
       });
     }
 
-    const lastService = await Service.findOne().sort({ order: -1 });
+    const lastService = await Service.findOne().sort({
+      order: -1,
+    });
 
-    const newOrder = lastService ? lastService.order + 1 : 1;
+    const newOrder = lastService
+      ? lastService.order + 1
+      : 1;
 
     const service = new Service({
       name,
@@ -44,13 +59,21 @@ router.post("/", async (req, res) => {
   }
 });
 
-router.put("/:id", async (req, res) => {
+// ================= UPDATE SERVICE =================
+// Admin only
+
+router.put("/:id", protectAdmin, async (req, res) => {
   try {
     const { name, description, active, order } = req.body;
 
     const updatedService = await Service.findByIdAndUpdate(
       req.params.id,
-      { name, description, active, order },
+      {
+        name,
+        description,
+        active,
+        order,
+      },
       { new: true }
     );
 
@@ -62,7 +85,10 @@ router.put("/:id", async (req, res) => {
   }
 });
 
-router.delete("/:id", async (req, res) => {
+// ================= DELETE SERVICE =================
+// Admin only
+
+router.delete("/:id", protectAdmin, async (req, res) => {
   try {
     await Service.findByIdAndDelete(req.params.id);
 
