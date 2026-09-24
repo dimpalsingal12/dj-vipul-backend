@@ -121,16 +121,31 @@ router.get("/verify-email/:token", async (req, res) => {
     await customer.save();
 
     res.send(`
-      <h2>Email Verified Successfully!</h2>
-      <p>Your email has been verified.</p>
-      <p>You can now return to the DJ Vipul website and login.</p>
-    `);
+  <h2>Email Verified Successfully!</h2>
+  <p>Your email has been verified.</p>
+  <p>You can now return to the DJ Vipul website and login.</p>
+
+  <a href="${process.env.FRONTEND_URL}"
+     style="
+       display: inline-block;
+       margin-top: 15px;
+       padding: 12px 20px;
+       background-color: #d4af37;
+       color: black;
+       text-decoration: none;
+       border-radius: 5px;
+     ">
+    Go Back to Website
+  </a>
+  `);
   } catch (error) {
     console.error("Email verification error:", error);
 
     res.status(500).send("Server error during email verification.");
   }
 });
+
+
 
 // ================= FORGOT PASSWORD =================
 
