@@ -1,6 +1,9 @@
+
 const express = require("express");
+const jwt = require("jsonwebtoken");
 const Booking = require("../models/Booking");
 const transporter = require("../config/emailService");
+
 const {
   protectAdmin,
   protectCustomer,
@@ -8,9 +11,58 @@ const {
 
 const router = express.Router();
 
-// ================= CREATE BOOKING - CUSTOMER =================
+// ================= OPTIONAL CUSTOMER AUTH =================
+// Logged-in customer: verify token.
+// Guest customer: allow booking without token.
 
-router.post("/", protectCustomer, async (req, res) => {
+const optionalCustomerAuth = (req, res, next) => {
+  const authHeader = req.headers.authorization;
+
+  // No token, null token or undefined token means guest booking
+  if (
+    !authHeader ||
+    authHeader === "Bearer null" ||
+    authHeader === "Bearer undefined" ||
+    authHeader === "Bearer"
+  ) {
+    req.user = null;
+    return next();
+  }
+
+  if (!authHeader.startsWith("Bearer ")) {
+    return res.status(401).json({
+      message: "Invalid authentication format.",
+    });
+  }
+
+  const token = authHeader.split(" ")[1];
+
+  if (!token || token === "null" || token === "undefined") {
+    req.user = null;
+    return next();
+  }
+
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+
+    if (decoded.role !== "customer") {
+      return res.status(403).json({
+        message: "Customer access required.",
+      });
+    }
+
+    req.user = decoded;
+    next();
+  } catch (error) {
+    return res.status(401).json({
+      message: "Invalid or expired authentication token.",
+    });
+  }
+};
+
+// ================= CREATE BOOKING - CUSTOMER / GUEST =================
+
+router.post("/", optionalCustomerAuth, async (req, res) => {
   try {
     const {
       customerName,
@@ -31,24 +83,32 @@ router.post("/", protectCustomer, async (req, res) => {
       !eventType ||
       !eventDate ||
       !venue ||
-      !guests
+      guests === undefined ||
+      guests === null ||
+      guests === ""
     ) {
       return res.status(400).json({
         message: "All required booking fields are required",
       });
     }
 
-    // Make sure booking belongs to logged-in customer
-    if (email.toLowerCase() !== req.user.email.toLowerCase()) {
+    const normalizedEmail = email.trim().toLowerCase();
+
+    // Logged-in customer can only book using their own email
+    if (
+      req.user &&
+      normalizedEmail !== req.user.email.trim().toLowerCase()
+    ) {
       return res.status(403).json({
         message: "You can only create a booking for your own account",
       });
     }
 
+    // Guest bookings and customer bookings both save here
     const booking = new Booking({
-      customerName,
-      email,
-      phone,
+      customerName: customerName.trim(),
+      email: normalizedEmail,
+      phone: phone.trim(),
       eventType,
       eventDate,
       venue,
@@ -59,11 +119,14 @@ router.post("/", protectCustomer, async (req, res) => {
 
     const savedBooking = await booking.save();
 
-    res.status(201).json(savedBooking);
+    return res.status(201).json({
+      message: "Booking request submitted successfully",
+      booking: savedBooking,
+    });
   } catch (error) {
     console.error("Error creating booking:", error);
 
-    res.status(400).json({
+    return res.status(400).json({
       message: error.message,
     });
   }
@@ -94,13 +157,17 @@ router.get("/my-bookings/:email", protectCustomer, async (req, res) => {
     const { email } = req.params;
 
     // Customer can only see their own bookings
-    if (email.toLowerCase() !== req.user.email.toLowerCase()) {
+    if (
+      email.toLowerCase() !== req.user.email.toLowerCase()
+    ) {
       return res.status(403).json({
         message: "You can only view your own bookings",
       });
     }
 
-    const bookings = await Booking.find({ email }).sort({
+    const bookings = await Booking.find({
+      email: req.user.email,
+    }).sort({
       createdAt: -1,
     });
 
@@ -187,8 +254,6 @@ router.delete("/:id", async (req, res) => {
     }
 
     const token = authHeader.split(" ")[1];
-
-    const jwt = require("jsonwebtoken");
 
     let decoded;
 

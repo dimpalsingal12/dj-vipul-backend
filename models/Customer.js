@@ -1,3 +1,4 @@
+
 const mongoose = require("mongoose");
 
 const customerSchema = new mongoose.Schema(
@@ -26,7 +27,6 @@ const customerSchema = new mongoose.Schema(
       required: true,
     },
 
-    // Email verification fields
     isVerified: {
       type: Boolean,
       default: false,
@@ -37,7 +37,6 @@ const customerSchema = new mongoose.Schema(
       default: null,
     },
 
-    // Password reset fields
     resetPasswordToken: {
       type: String,
       default: null,
@@ -47,10 +46,19 @@ const customerSchema = new mongoose.Schema(
       type: Date,
       default: null,
     },
+
+    // Customer persistent login session
+    refreshTokenHash: {
+      type: String,
+      default: null,
+    },
+
+    refreshTokenExpires: {
+      type: Date,
+      default: null,
+    },
   },
-  {
-    timestamps: true,
-  }
+  { timestamps: true }
 );
 
 const Customer = mongoose.model("Customer", customerSchema);

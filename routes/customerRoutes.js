@@ -1,3 +1,4 @@
+
 const express = require("express");
 const bcrypt = require("bcryptjs");
 const crypto = require("crypto");
@@ -8,22 +9,44 @@ const { protectAdmin } = require("../middleware/auth");
 
 const router = express.Router();
 
+// ================= TOKEN HELPERS =================
+
+const createAccessToken = (customer) => {
+  return jwt.sign(
+    {
+      id: customer._id,
+      name: customer.name,
+      email: customer.email,
+      phone: customer.phone,
+      role: "customer",
+    },
+    process.env.JWT_SECRET
+  );
+};
+
+const hashAccessToken = (token) => {
+  return crypto
+    .createHash("sha256")
+    .update(token)
+    .digest("hex");
+};
+
 // ================= REGISTER CUSTOMER =================
 
 router.post("/register", async (req, res) => {
   try {
     const { name, email, phone, password } = req.body;
 
-    // Check if all fields are provided
     if (!name || !email || !phone || !password) {
       return res.status(400).json({
         message: "All fields are required",
       });
     }
 
-    // Check if customer already exists
+    const normalizedEmail = email.trim().toLowerCase();
+
     const existingCustomer = await Customer.findOne({
-      email: email.toLowerCase(),
+      email: normalizedEmail,
     });
 
     if (existingCustomer) {
@@ -32,63 +55,21 @@ router.post("/register", async (req, res) => {
       });
     }
 
-    // Hash password
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    // Generate verification token
-    const verificationToken = crypto.randomBytes(32).toString("hex");
-
-    // Create customer
     const customer = new Customer({
-      name,
-      email: email.toLowerCase(),
-      phone,
+      name: name.trim(),
+      email: normalizedEmail,
+      phone: phone.trim(),
       password: hashedPassword,
-      isVerified: false,
-      verificationToken: verificationToken,
+      isVerified: true,
+      verificationToken: null,
     });
 
     await customer.save();
 
-    // Create verification link
-   const verificationLink =
-  `${process.env.BACKEND_URL}/api/customers/verify-email/${verificationToken}`;
-
-    // Send verification email
-    await transporter.sendMail({
-      from: process.env.EMAIL_USER,
-      to: email,
-      subject: "Verify Your Email - DJ Vipul",
-      html: `
-        <h2>Welcome to DJ Vipul Professional Sound & Lights!</h2>
-
-        <p>Hello ${name},</p>
-
-        <p>Thank you for registering on our website.</p>
-
-        <p>Please click the button below to verify your email address:</p>
-
-        <a href="${verificationLink}"
-           style="
-             display: inline-block;
-             padding: 12px 20px;
-             background-color: #d4af37;
-             color: black;
-             text-decoration: none;
-             border-radius: 5px;
-           ">
-          Verify Email
-        </a>
-
-        <p>If you did not create this account, you can ignore this email.</p>
-
-        <p>Regards,<br>DJ Vipul Team</p>
-      `,
-    });
-
     res.status(201).json({
-      message:
-        "Registration successful! Please check your email to verify your account.",
+      message: "Registration successful! You can now login.",
     });
   } catch (error) {
     console.error("Registration error:", error);
@@ -99,70 +80,20 @@ router.post("/register", async (req, res) => {
   }
 });
 
-// ================= VERIFY EMAIL =================
-
-router.get("/verify-email/:token", async (req, res) => {
-  try {
-    const { token } = req.params;
-
-    // Find customer using verification token
-    const customer = await Customer.findOne({
-      verificationToken: token,
-    });
-
-    if (!customer) {
-      return res.status(400).send("Invalid or expired verification link.");
-    }
-
-    // Mark email as verified
-    customer.isVerified = true;
-    customer.verificationToken = null;
-
-    await customer.save();
-
-    res.send(`
-  <h2>Email Verified Successfully!</h2>
-  <p>Your email has been verified.</p>
-  <p>You can now return to the DJ Vipul website and login.</p>
-
-  <a href="${process.env.FRONTEND_URL}"
-     style="
-       display: inline-block;
-       margin-top: 15px;
-       padding: 12px 20px;
-       background-color: #d4af37;
-       color: black;
-       text-decoration: none;
-       border-radius: 5px;
-     ">
-    Go Back to Website
-  </a>
-  `);
-  } catch (error) {
-    console.error("Email verification error:", error);
-
-    res.status(500).send("Server error during email verification.");
-  }
-});
-
-
-
 // ================= FORGOT PASSWORD =================
 
 router.post("/forgot-password", async (req, res) => {
   try {
     const { email } = req.body;
 
-    // Check if email is provided
     if (!email) {
       return res.status(400).json({
         message: "Email is required",
       });
     }
 
-    // Find customer by email
     const customer = await Customer.findOne({
-      email: email.toLowerCase(),
+      email: email.trim().toLowerCase(),
     });
 
     if (!customer) {
@@ -171,22 +102,19 @@ router.post("/forgot-password", async (req, res) => {
       });
     }
 
-    // Generate reset token
     const resetToken = crypto.randomBytes(32).toString("hex");
 
-    // Save token and expiry time
     customer.resetPasswordToken = resetToken;
     customer.resetPasswordExpires = Date.now() + 15 * 60 * 1000;
 
     await customer.save();
 
-    // Create reset password link
     const resetLink =
-  `${process.env.FRONTEND_URL}/reset-password/${resetToken}`;
-    // Send reset email
+      `${process.env.FRONTEND_URL}/reset-password/${resetToken}`;
+
     await transporter.sendMail({
       from: process.env.EMAIL_USER,
-      to: email,
+      to: customer.email,
       subject: "Reset Your Password - DJ Vipul",
       html: `
         <h2>DJ Vipul Professional Sound & Lights</h2>
@@ -236,14 +164,12 @@ router.post("/reset-password/:token", async (req, res) => {
     const { token } = req.params;
     const { password } = req.body;
 
-    // Check password
     if (!password) {
       return res.status(400).json({
         message: "New password is required",
       });
     }
 
-    // Find customer using reset token
     const customer = await Customer.findOne({
       resetPasswordToken: token,
       resetPasswordExpires: { $gt: Date.now() },
@@ -255,15 +181,15 @@ router.post("/reset-password/:token", async (req, res) => {
       });
     }
 
-    // Hash new password
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    // Update password
     customer.password = hashedPassword;
-
-    // Remove reset token after use
     customer.resetPasswordToken = null;
     customer.resetPasswordExpires = null;
+
+    // Revoke existing customer login
+    customer.refreshTokenHash = null;
+    customer.refreshTokenExpires = null;
 
     await customer.save();
 
@@ -285,16 +211,14 @@ router.post("/login", async (req, res) => {
   try {
     const { email, password } = req.body;
 
-    // Check if email and password are provided
     if (!email || !password) {
       return res.status(400).json({
         message: "Email and password are required",
       });
     }
 
-    // Find customer by email
     const customer = await Customer.findOne({
-      email: email.toLowerCase(),
+      email: email.trim().toLowerCase(),
     });
 
     if (!customer) {
@@ -303,14 +227,6 @@ router.post("/login", async (req, res) => {
       });
     }
 
-    // Check if email is verified
-    if (!customer.isVerified) {
-      return res.status(403).json({
-        message: "Please verify your email before logging in.",
-      });
-    }
-
-    // Compare entered password with hashed password
     const isPasswordCorrect = await bcrypt.compare(
       password,
       customer.password
@@ -322,27 +238,18 @@ router.post("/login", async (req, res) => {
       });
     }
 
-    // Create JWT token
-    const token = jwt.sign(
-      {
-        id: customer._id,
-        name: customer.name,
-        email: customer.email,
-        phone: customer.phone,
-        role: "customer",
-      },
-      process.env.JWT_SECRET,
-      {
-        expiresIn: "1d",
-      }
-    );
+    // Create a token without automatic expiry
+    const token = createAccessToken(customer);
 
-    // Login successful
+    // Save token hash for manual logout and revocation
+    customer.refreshTokenHash = hashAccessToken(token);
+    customer.refreshTokenExpires = null;
+
+    await customer.save();
+
     res.status(200).json({
       message: "Login successful",
-
       token,
-
       customer: {
         id: customer._id,
         name: customer.name,
@@ -359,6 +266,41 @@ router.post("/login", async (req, res) => {
   }
 });
 
+// ================= LOGOUT CUSTOMER =================
+
+router.post("/logout", async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+
+    if (authHeader && authHeader.startsWith("Bearer ")) {
+      const token = authHeader.split(" ")[1];
+      const tokenHash = hashAccessToken(token);
+
+      await Customer.updateOne(
+        {
+          refreshTokenHash: tokenHash,
+        },
+        {
+          $set: {
+            refreshTokenHash: null,
+            refreshTokenExpires: null,
+          },
+        }
+      );
+    }
+
+    res.status(200).json({
+      message: "Logged out successfully",
+    });
+  } catch (error) {
+    console.error("Logout error:", error);
+
+    res.status(500).json({
+      message: "Server error during logout",
+    });
+  }
+});
+
 // ================= GET ALL CUSTOMERS =================
 
 router.get("/", protectAdmin, async (req, res) => {
@@ -367,6 +309,8 @@ router.get("/", protectAdmin, async (req, res) => {
 
     res.json(customers);
   } catch (error) {
+    console.error("Fetch customers error:", error);
+
     res.status(500).json({
       message: "Error fetching customers",
     });
